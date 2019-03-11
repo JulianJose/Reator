@@ -8,6 +8,7 @@
  *                         -Implementação da função filtro
  *  Versão 1.5 26/11/2018: -Mudanças para deixar o código mais legível
  *                         -Conserto em bugs na função filtro
+ *  Versão 1.6 22/11/2018: Inclusão do suporte ao sensor de fluxo YF-S401
  */
 
 //#######################################################################################################################
@@ -31,6 +32,8 @@
 #define condutivimetro A3 // Sensor de condutividade
 #define sensor_nivel A0 // Sensor de nível
 
+unsigned const sensor_fluxo = 5;
+
 //#######################################################################################################################
 // CONFIGURAÇÕES INICIAIS
 
@@ -48,15 +51,21 @@ boolean CH_RESISTENCIA = 0;
 boolean CH_HABILITA_AGITADOR = 0;
 boolean CH_SENSOR_NIVEL = 0;
 boolean CH_CONDUTIVIMETRO = 0;
+boolean CH_HABILITA_SENSOR_FLUXO = 1;
 
 //#######################################################################################################################
 // VARIÁVEIS DO SISTEMA
 
-float TEMPERATURA, NIVEL, CONDUTIVIDADE;
+float TEMPERATURA, NIVEL, CONDUTIVIDADE, FLUXO;
 int VELOCIDADE_AGITADOR = 100, TEMPERATURA_RESISTENCIA = 50, PWM_BOMBA1 = 0;
 
+// Variáveis de tempo
 unsigned long time;
 unsigned long TEMPO_ATUAL;
+
+// Sensor de fluxo
+
+unsigned long duration;
 
 int INDEX = 0;
 
@@ -77,6 +86,7 @@ void setup()
    pinMode(step_agitador, OUTPUT);
    pinMode(sentido_agitador, OUTPUT);
    pinMode(sensor_nivel, INPUT);
+   pinMode(sensor_fluxo, INPUT);
 }
 
 void loop()
@@ -92,13 +102,15 @@ void loop()
 
   if(CH_HABILITA_AGITADOR)
     aciona_agitador();
-  
+
   if(CH_SENSOR_NIVEL)
     le_nivel();
 
   if(CH_RESISTENCIA)
     aciona_resistencia();
 
+  if(CH_HABILITA_SENSOR_FLUXO)
+    le_fluxo();
   // le_condutividade(); Ainda precisa ser implementado
   exibe_dados();
 }
@@ -129,10 +141,19 @@ void le_informacao()
         case 'F':
                     break;
         default:
+                   //Serial.println("Opcao invalida!");
                     break;
       }
    }
 }
+
+void le_fluxo()
+{
+        duration = pulseInLong(sensor_fluxo, HIGH);
+        FLUXO = duration;
+      //  FLUXO = (1/(duration*2))/98;
+}
+
 
 void liga_motor()
 {
@@ -235,6 +256,12 @@ void exibe_dados()
   {
     Serial.print(" Condutividade: ");
     Serial.print(CONDUTIVIDADE);
+  }
+
+  if(CH_HABILITA_SENSOR_FLUXO)
+  {
+    Serial.print(" Fluxo (L/min): ");
+    Serial.print(FLUXO);
   }
 
   Serial.print("\n");
