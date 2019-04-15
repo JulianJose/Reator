@@ -4,7 +4,10 @@
  *
  *  Autor: Julian Jose de Brito
  *
- *  Versão 1.9 12/04/2019: Exclusão de funções não implementadas.
+ *  Versão 1.92 15/04/2019: Melhorias no controle do agitador para evitar despercício de energia.
+ *                          Variação suave da velocidade do agitador.
+ *                          Controle da faixa de intervalo de ativação do agitador.
+ * 
  */
 
 //#######################################################################################################################
@@ -33,11 +36,7 @@
 // Define os pinos de saida para o motor de passo (agitador).
 #define step_agitador 10
 #define sentido_agitador 11
-
-
-// Sensor de nível
-#define sensor_nivel A0
-
+#define sleep 12
 
 //#######################################################################################################################
 // CONFIGURAÇÕES INICIAIS
@@ -51,23 +50,21 @@ DeviceAddress ENDERECO_SENSOR_TEMPERATURA;
 // PAINEL DE CONTROLE
 
 //Define as chaves de controle
-boolean CH_LIGA_BOMBA1 = 0;
+boolean CH_LIGA_BOMBA1 = 1;
 boolean CH_LIBERA_SENSOR_TEMPERATURA = 0;
 boolean CH_RESISTENCIA = 0;
-boolean CH_HABILITA_AGITADOR = 0;
+boolean CH_HABILITA_AGITADOR = 1;
 
 //#######################################################################################################################
 // VARIÁVEIS DO SISTEMA
 
-float TEMPERATURA, NIVEL, CONDUTIVIDADE;
-int VELOCIDADE_AGITADOR = 50, TEMPERATURA_RESISTENCIA = 50, PWM_BOMBA1 = 0;
+float TEMPERATURA;
+int VELOCIDADE_AGITADOR = 0, VELOCIDADE_AGITADOR_ANTERIOR = 0,
+    TEMPERATURA_RESISTENCIA = 50, 
+    PWM_BOMBA1 = 0, PERIODO_INTERVALO_AGITADOR = 0;
 
-//unsigned long TIME;
-//unsigned long TEMPO_ATUAL;
-
-int INDEX = 0;
-
-float NIVEL_APROXIMADO, LEITURAS_NIVEL[20];
+unsigned long PERIODO_AGITADOR; // Variável que vai guardar o tempo dos intervalor de ativação do agitador
+boolean PERIODO = false; // Boolean dependente do perído definido.
 
 void setup()
 {
@@ -87,12 +84,13 @@ void setup()
    digitalWrite(velocidade_bomba1, LOW);
 
    pinMode(step_agitador, OUTPUT);
-   digitalWrite(step_agitador, LOW);
+   digitalWrite(step_agitador, HIGH);
 
    pinMode(sentido_agitador, OUTPUT);
    digitalWrite(sentido_agitador, LOW);
 
-   pinMode(sensor_nivel, INPUT);
+   pinMode(sleep, OUTPUT);
+   digitalWrite(sleep, LOW);
 
 }
 
@@ -108,6 +106,7 @@ void loop()
   if(CH_LIBERA_SENSOR_TEMPERATURA)
   le_sensor_temperatura();
 
+  if(CH_RESISTENCIA)
   aciona_resistencia();
 
   if(CH_HABILITA_AGITADOR)
@@ -130,7 +129,12 @@ void le_informacao()
                     TEMPERATURA_RESISTENCIA = Serial.parseFloat();
                     break;
         case 'A':
-                    VELOCIDADE_AGITADOR = Serial.parseInt(); //faixa recomendada 200 - 800
+                    VELOCIDADE_AGITADOR = Serial.parseInt(); //faixa recomendada limite 156
+                    if((Serial.available() > 0) && (Serial.read() == 'P'))
+                        PERIODO_INTERVALO_AGITADOR = Serial.parseInt();
+                    if(VELOCIDADE_AGITADOR > 156)
+                        VELOCIDADE_AGITADOR = 156;
+                    break;
         default:
                     break;
       }
@@ -161,8 +165,45 @@ void aciona_resistencia()
 }
 
 void aciona_agitador()
-{ 
-  tone(step_agitador, VELOCIDADE_AGITADOR);
+{  
+  // Implementa uma variação suave de velocidade
+  if((VELOCIDADE_AGITADOR - abs(VELOCIDADE_AGITADOR_ANTERIOR)) <= 15)
+  {
+      VELOCIDADE_AGITADOR_ANTERIOR = VELOCIDADE_AGITADOR;
+  }
+  else if((VELOCIDADE_AGITADOR - VELOCIDADE_AGITADOR_ANTERIOR) > 15)
+      VELOCIDADE_AGITADOR_ANTERIOR+= 15;
+      
+  else if((VELOCIDADE_AGITADOR - VELOCIDADE_AGITADOR_ANTERIOR) < 15)
+      VELOCIDADE_AGITADOR_ANTERIOR-= 15;
+
+      
+  Serial.println(VELOCIDADE_AGITADOR_ANTERIOR);
+
+  if(PERIODO_INTERVALO_AGITADOR != 0)
+  {
+    if((millis() - PERIODO_AGITADOR)/1000 >= PERIODO_INTERVALO_AGITADOR)
+      {
+           PERIODO = PERIODO? false: true;
+           PERIODO_AGITADOR = millis();    
+      }      
+  }
+  else
+     PERIODO = true;
+
+  if(not(PERIODO))  // Permite usar o acionamento suave no motor de passo usando os períodos de intervalo.
+     VELOCIDADE_AGITADOR_ANTERIOR = 0;
+  
+  if((VELOCIDADE_AGITADOR == 0) || (PERIODO == 0 && PERIODO_INTERVALO_AGITADOR != 0))
+  {
+      noTone(step_agitador);
+      digitalWrite(sleep, LOW);
+  }
+  else if((VELOCIDADE_AGITADOR != 0) && PERIODO)
+  {
+      digitalWrite(sleep, HIGH);
+      tone(step_agitador, VELOCIDADE_AGITADOR_ANTERIOR*200/60); // Manda uma onda quadrada para o driver do motor com a velocidade em rpm desejada.
+  }
 }
 
 void exibe_dados()
@@ -170,8 +211,12 @@ void exibe_dados()
 
   if(CH_HABILITA_AGITADOR)
   {
-    Serial.print(" Velocidade do agitador: ");
-    Serial.print(VELOCIDADE_AGITADOR);
+    Serial.print(" Velocidade do agitador (rpm): ");
+    Serial.print(VELOCIDADE_AGITADOR_ANTERIOR);
+
+    Serial.print(" intervalo do agitador (s): ");
+    Serial.print(PERIODO_INTERVALO_AGITADOR);
+
   }
 
   if(CH_LIGA_BOMBA1)
@@ -191,5 +236,5 @@ void exibe_dados()
     Serial.print(" Temp ºC: ");
     Serial.print(TEMPERATURA);
   }
-
+  Serial.println(" ");
 }
