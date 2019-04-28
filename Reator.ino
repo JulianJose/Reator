@@ -4,9 +4,9 @@
  *
  *  Autor: Julian Jose de Brito
  *
- *  Versão 1.92 15/04/2019: Melhorias no controle do agitador para evitar despercício de energia.
- *                          Variação suave da velocidade do agitador.
- *                          Controle da faixa de intervalo de ativação do agitador.
+ *  Versão 1.93 28/04/2019: Implementado o controle da segunda bomba.
+ *                          Controle da valvula de saída adicionado.
+ *                          Melhorias na eficiência do código.
  * 
  */
 
@@ -24,8 +24,12 @@
 //#######################################################################################################################
 // DEFINIÇÕES DOS PINOS
 
-// Define pinos para o pwm da bomba 1.
-#define velocidade_bomba1 6
+// Define pinos para o pwm das bombas.
+#define velocidade_bomba1 5
+#define velocidade_bomba2 6
+
+// Define o pino para a valvula de saída.
+#define valvula 8
 
 // Define o pino de saida para a resistência.
 #define resistencia 7
@@ -51,17 +55,23 @@ DeviceAddress ENDERECO_SENSOR_TEMPERATURA;
 
 //Define as chaves de controle
 boolean CH_LIGA_BOMBA1 = 1;
+boolean CH_LIGA_BOMBA2 = 1;
+boolean CH_LIGA_VALVULA = 1;
 boolean CH_LIBERA_SENSOR_TEMPERATURA = 0;
 boolean CH_RESISTENCIA = 0;
-boolean CH_HABILITA_AGITADOR = 1;
+boolean CH_HABILITA_AGITADOR = 0;
 
 //#######################################################################################################################
 // VARIÁVEIS DO SISTEMA
 
 float TEMPERATURA;
-int VELOCIDADE_AGITADOR = 0, VELOCIDADE_AGITADOR_ANTERIOR = 0,
+int VELOCIDADE_AGITADOR = 100, 
+    VELOCIDADE_AGITADOR_ANTERIOR = 0,
     TEMPERATURA_RESISTENCIA = 50, 
-    PWM_BOMBA1 = 0, PERIODO_INTERVALO_AGITADOR = 0;
+    PWM_BOMBA1 = 0, PWM_BOMBA2 = 0, 
+    PERIODO_INTERVALO_AGITADOR = 0, 
+    PERIODO_DESLIGADO = 0,
+    PWM_VALVULA = 100;
 
 unsigned long PERIODO_AGITADOR; // Variável que vai guardar o tempo dos intervalor de ativação do agitador
 boolean PERIODO = false; // Boolean dependente do perído definido.
@@ -78,6 +88,12 @@ void setup()
 
 
    pinMode(velocidade_bomba1, OUTPUT);
+   digitalWrite(velocidade_bomba1, LOW);
+
+   pinMode(velocidade_bomba2, OUTPUT);
+   digitalWrite(velocidade_bomba1, LOW);
+
+   pinMode(valvula, OUTPUT);
    digitalWrite(velocidade_bomba1, LOW);
 
    pinMode(resistencia, OUTPUT);
@@ -100,9 +116,6 @@ void loop()
   //verifica se algo foi digitado no canal serial
   le_informacao();
 
-  if(CH_LIGA_BOMBA1)
-  liga_motor();
-
   if(CH_LIBERA_SENSOR_TEMPERATURA)
   le_sensor_temperatura();
 
@@ -123,7 +136,17 @@ void le_informacao()
       switch (Serial.read())
       {
         case 'B':
-                    PWM_BOMBA1 = Serial.parseInt();
+                    if((Serial.available() > 0) && (Serial.read() == '1'))
+                      PWM_BOMBA1 = Serial.parseInt();
+                    else//if((Serial.available() > 0) && (Serial.read() == '2'))
+                      PWM_BOMBA2 = Serial.parseInt();
+
+                    if(CH_LIGA_BOMBA1) // Aplica as alterações 
+                      liga_bomba1();
+
+                    if(CH_LIGA_BOMBA2)
+                      liga_bomba2();
+        
                     break;
         case 'T':
                     TEMPERATURA_RESISTENCIA = Serial.parseFloat();
@@ -132,19 +155,40 @@ void le_informacao()
                     VELOCIDADE_AGITADOR = Serial.parseInt(); //faixa recomendada limite 156
                     if((Serial.available() > 0) && (Serial.read() == 'P'))
                         PERIODO_INTERVALO_AGITADOR = Serial.parseInt();
+                    if((Serial.available() > 0) && (Serial.read() == 'D'))
+                        PERIODO_DESLIGADO = Serial.parseInt();
                     if(VELOCIDADE_AGITADOR > 156)
                         VELOCIDADE_AGITADOR = 156;
                     break;
+        case 'V':
+                    PWM_VALVULA = Serial.parseInt();
+
+                    if(CH_LIGA_VALVULA)
+                      muda_valvula();
+
+                    break;
         default:
+                    Serial.println("Opção inválida!")
                     break;
       }
    }
 
 }
 
-void liga_motor()
+void liga_bomba1()
 {
   analogWrite(velocidade_bomba1, PWM_BOMBA1);
+}
+
+void liga_bomba2()
+{
+    analogWrite(velocidade_bomba2, PWM_BOMBA2);  
+}
+
+void muda_valvula()
+{
+    // Regular a valvula!
+    analogWrite(valvula, PWM_VALVULA);  
 }
 
 void le_sensor_temperatura()
@@ -177,16 +221,22 @@ void aciona_agitador()
   else if((VELOCIDADE_AGITADOR - VELOCIDADE_AGITADOR_ANTERIOR) < 15)
       VELOCIDADE_AGITADOR_ANTERIOR-= 15;
 
-      
-  Serial.println(VELOCIDADE_AGITADOR_ANTERIOR);
 
   if(PERIODO_INTERVALO_AGITADOR != 0)
   {
-    if((millis() - PERIODO_AGITADOR)/1000 >= PERIODO_INTERVALO_AGITADOR)
+    if(((millis() - PERIODO_AGITADOR)/1000 >= PERIODO_INTERVALO_AGITADOR) && (PERIODO_DESLIGADO == 0))
       {
            PERIODO = PERIODO? false: true;
            PERIODO_AGITADOR = millis();    
-      }      
+      }  
+    if(PERIODO_DESLIGADO != 0)
+    {
+      if((millis() - PERIODO_AGITADOR)/1000 >= PERIODO_DESLIGADO)
+      {
+           PERIODO = PERIODO? false: true;
+           PERIODO_AGITADOR = millis();    
+      }  
+    }
   }
   else
      PERIODO = true;
@@ -225,6 +275,17 @@ void exibe_dados()
     Serial.print(PWM_BOMBA1);
   }
 
+  if(CH_LIGA_BOMBA2)
+  {
+    Serial.print(" PWM Bomba 2: ");
+    Serial.print(PWM_BOMBA2);
+  }
+
+  if(CH_LIGA_VALVULA)
+  {
+    Serial.print(" PWM Valvula: ");
+    Serial.print(PWM_VALVULA);
+  }
   if(CH_RESISTENCIA)
   {
     Serial.print(" Temperatura Resistência: ");
