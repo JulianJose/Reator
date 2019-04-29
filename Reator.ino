@@ -4,9 +4,8 @@
  *
  *  Autor: Julian Jose de Brito
  *
- *  Versão 1.93 28/04/2019: Implementado o controle da segunda bomba.
- *                          Controle da valvula de saída adicionado.
- *                          Melhorias na eficiência do código.
+ *  Versão 1.94 29/04/2019: Controle da válvula ajustado.
+ *                          Entrada das bombas e valvulas ajustadas para percentual.
  * 
  */
 
@@ -54,9 +53,9 @@ DeviceAddress ENDERECO_SENSOR_TEMPERATURA;
 // PAINEL DE CONTROLE
 
 //Define as chaves de controle
-boolean CH_LIGA_BOMBA1 = 1;
-boolean CH_LIGA_BOMBA2 = 1;
-boolean CH_LIGA_VALVULA = 1;
+boolean CH_LIGA_BOMBA1 = 0;
+boolean CH_LIGA_BOMBA2 = 0;
+boolean CH_LIGA_VALVULA = 0;
 boolean CH_LIBERA_SENSOR_TEMPERATURA = 0;
 boolean CH_RESISTENCIA = 0;
 boolean CH_HABILITA_AGITADOR = 0;
@@ -71,7 +70,7 @@ int VELOCIDADE_AGITADOR = 100,
     PWM_BOMBA1 = 0, PWM_BOMBA2 = 0, 
     PERIODO_INTERVALO_AGITADOR = 0, 
     PERIODO_DESLIGADO = 0,
-    PWM_VALVULA = 100;
+    ABERTURA_VALVULA = 0; //100 Completamente fechada 
 
 unsigned long PERIODO_AGITADOR; // Variável que vai guardar o tempo dos intervalor de ativação do agitador
 boolean PERIODO = false; // Boolean dependente do perído definido.
@@ -161,14 +160,13 @@ void le_informacao()
                         VELOCIDADE_AGITADOR = 156;
                     break;
         case 'V':
-                    PWM_VALVULA = Serial.parseInt();
-
+                    ABERTURA_VALVULA = Serial.parseInt();
                     if(CH_LIGA_VALVULA)
                       muda_valvula();
 
                     break;
         default:
-                    Serial.println("Opção inválida!")
+                    Serial.println("Opção inválida!");
                     break;
       }
    }
@@ -177,18 +175,18 @@ void le_informacao()
 
 void liga_bomba1()
 {
-  analogWrite(velocidade_bomba1, PWM_BOMBA1);
+  analogWrite(velocidade_bomba1, map(PWM_BOMBA1,0,100,0,253));
 }
 
 void liga_bomba2()
 {
-    analogWrite(velocidade_bomba2, PWM_BOMBA2);  
+    analogWrite(velocidade_bomba2, map(PWM_BOMBA2,0,100,0,253));  
 }
 
 void muda_valvula()
 {
     // Regular a valvula!
-    analogWrite(valvula, PWM_VALVULA);  
+    analogWrite(valvula, map(ABERTURA_VALVULA, 0, 100, 100, 225));  
 }
 
 void le_sensor_temperatura()
@@ -273,18 +271,21 @@ void exibe_dados()
   {
     Serial.print(" PWM Bomba 1: ");
     Serial.print(PWM_BOMBA1);
+    Serial.print("%");
   }
 
   if(CH_LIGA_BOMBA2)
   {
     Serial.print(" PWM Bomba 2: ");
     Serial.print(PWM_BOMBA2);
+    Serial.print("%");
   }
 
   if(CH_LIGA_VALVULA)
   {
-    Serial.print(" PWM Valvula: ");
-    Serial.print(PWM_VALVULA);
+    Serial.print(" Abertura da Valvula: ");
+    Serial.print(ABERTURA_VALVULA);
+    Serial.print("%");
   }
   if(CH_RESISTENCIA)
   {
