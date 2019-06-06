@@ -55,24 +55,24 @@ boolean CH_LIGA_BOMBA2 = 1;
 boolean CH_LIGA_VALVULA = 1;
 boolean CH_LIBERA_SENSOR_TEMPERATURA = 1;
 boolean CH_RESISTENCIA = 1;
-boolean CH_HABILITA_AGITADOR = 0;
+boolean CH_HABILITA_AGITADOR = 1;
 boolean CH_HABILITA_SENSOR_PRESSAO = 1;
 boolean CH_HABILITA_SENSOR_NIVEL = 0;
 
 //#######################################################################################################################
 // VARIÁVEIS DO SISTEMA
 
-float TEMPERATURA, VOLUME = 0, VOLUME_OBJETIVO = 0, Vi = 0, Ve = 0.0;
-int VELOCIDADE_AGITADOR = 100, 
+float TEMPERATURA, VOLUME = 0, VOLUME_OBJETIVO = 0, Vi = 3, Ve = 0.0, PERIODO_INTERVALO_AGITADOR = 0, 
+    PERIODO_DESLIGADO = 0;
+int VELOCIDADE_AGITADOR = 0, 
     VELOCIDADE_AGITADOR_ANTERIOR = 0,
     TEMPERATURA_RESISTENCIA = 0, 
-    PWM_BOMBA1 = 0, PWM_BOMBA2 = 0, 
-    PERIODO_INTERVALO_AGITADOR = 0, 
-    PERIODO_DESLIGADO = 0,
+    PWM_BOMBA1 = 0, PWM_BOMBA2 = 0,
     ABERTURA_VALVULA = 0,
     TE = 2; // Responsável pelo tempo de exibição dos dados.
 
 long TEMPO;
+long PERIODO_DESLIGADO_TEMPO = 0;
     
 boolean LEITURA_NIVEL = 0; 
 
@@ -84,7 +84,15 @@ boolean PERIODO = false; // Boolean dependente do perído definido.
 
 void setup()
 {
+   pinMode(STEP_AGITADOR, OUTPUT);
+   digitalWrite(STEP_AGITADOR, HIGH);
 
+   pinMode(SENTIDO_AGITADOR, OUTPUT);
+   digitalWrite(SENTIDO_AGITADOR, LOW);
+
+   pinMode(SLEEP, OUTPUT);
+   digitalWrite(SLEEP, LOW);
+   
    // Inicializa a comunicação serial
    Serial.begin(9600);
 
@@ -105,15 +113,6 @@ void setup()
    pinMode(RESISTENCIA, OUTPUT);
    digitalWrite(PWM_BOMB_1, LOW);
 
-   pinMode(STEP_AGITADOR, OUTPUT);
-   digitalWrite(STEP_AGITADOR, HIGH);
-
-   pinMode(SENTIDO_AGITADOR, OUTPUT);
-   digitalWrite(SENTIDO_AGITADOR, LOW);
-
-   pinMode(SLEEP, OUTPUT);
-   digitalWrite(SLEEP, LOW);
-
    pinMode(NIVEL, INPUT);
 
    sensor_pressao.begin(PRESSAO_DOUT_PIN, PRESSAO_SCK_PIN);
@@ -121,6 +120,8 @@ void setup()
    sensor_pressao.set_offset(PRESSAO_OFFSET);
 
    sensor_pressao.tare();
+
+   muda_valvula();
 
 }
 
@@ -224,11 +225,11 @@ void le_informacao()
         case 'A':
                     VELOCIDADE_AGITADOR = Serial.parseInt(); //faixa recomendada limite 156
                     if((Serial.available() > 0) && (Serial.read() == 'P'))
-                        PERIODO_INTERVALO_AGITADOR = Serial.parseInt();
+                        PERIODO_INTERVALO_AGITADOR = Serial.parseFloat();
                     if((Serial.available() > 0) && (Serial.read() == 'D'))
-                        PERIODO_DESLIGADO = Serial.parseInt();
-                    if(VELOCIDADE_AGITADOR > 156)
-                        VELOCIDADE_AGITADOR = 156;
+                        PERIODO_DESLIGADO = Serial.parseFloat();
+                    if(VELOCIDADE_AGITADOR > 160) //156
+                        VELOCIDADE_AGITADOR = 160;
                     break;
         case 'V':
                     ABERTURA_VALVULA = Serial.parseInt();
@@ -259,6 +260,7 @@ void le_informacao()
                           case 'v': 
                                     sensor_pressao.tare();
                                     Serial.println("Volume Zerado!");
+                                    Vi = 0;
                                     break;
                           case 'E':
                                     TE = Serial.parseInt();
@@ -296,7 +298,7 @@ void desativa_bombas()
 
 void muda_valvula()
 {
-   analogWrite(VALVULA, map(ABERTURA_VALVULA, 0, 100, 115, 225));  
+   analogWrite(VALVULA, map(ABERTURA_VALVULA, 0, 100, 135, 225)); 
 }
 
 void le_sensor_temperatura()
@@ -328,41 +330,38 @@ void aciona_resistencia()
 
 void aciona_agitador()
 {  
+  int step = 40;
   // Implementa uma variação suave de velocidade
-  if((VELOCIDADE_AGITADOR - abs(VELOCIDADE_AGITADOR_ANTERIOR)) <= 15)
+  if((VELOCIDADE_AGITADOR - abs(VELOCIDADE_AGITADOR_ANTERIOR)) <= step)
   {
       VELOCIDADE_AGITADOR_ANTERIOR = VELOCIDADE_AGITADOR;
   }
-  else if((VELOCIDADE_AGITADOR - VELOCIDADE_AGITADOR_ANTERIOR) > 15)
-      VELOCIDADE_AGITADOR_ANTERIOR+= 15;
+  else if((VELOCIDADE_AGITADOR - VELOCIDADE_AGITADOR_ANTERIOR) > step)
+      VELOCIDADE_AGITADOR_ANTERIOR+= step;
       
-  else if((VELOCIDADE_AGITADOR - VELOCIDADE_AGITADOR_ANTERIOR) < 15)
-      VELOCIDADE_AGITADOR_ANTERIOR-= 15;
-
-
-  if(PERIODO_INTERVALO_AGITADOR != 0)
-  {
-    if(((millis() - PERIODO_AGITADOR)/1000 >= PERIODO_INTERVALO_AGITADOR) && (PERIODO_DESLIGADO == 0))
-      {
-           PERIODO = PERIODO? false: true;
-           PERIODO_AGITADOR = millis();    
-      }  
-    if(PERIODO_DESLIGADO != 0)
-    {
-      if((millis() - PERIODO_AGITADOR)/1000 >= PERIODO_DESLIGADO)
-      {
-           PERIODO = PERIODO? false: true;
-           PERIODO_AGITADOR = millis();    
-      }  
-    }
-  }
-  else
-     PERIODO = true;
+  else if((VELOCIDADE_AGITADOR - VELOCIDADE_AGITADOR_ANTERIOR) < step)
+      VELOCIDADE_AGITADOR_ANTERIOR-= step;
 
   if(not(PERIODO))  // Permite usar o acionamento suave no motor de passo usando os períodos de intervalo.
      VELOCIDADE_AGITADOR_ANTERIOR = 0;
+
+    if(PERIODO_INTERVALO_AGITADOR != 0)
+    {
+      if((millis() - PERIODO_AGITADOR)/1000 >= (PERIODO_INTERVALO_AGITADOR+PERIODO_DESLIGADO))
+      {
+         PERIODO = false;
+         PERIODO_DESLIGADO_TEMPO = millis(); 
+         PERIODO_AGITADOR = millis();
+      }
+      else if((millis() - PERIODO_DESLIGADO_TEMPO)/1000 >= PERIODO_DESLIGADO)
+      {
+            PERIODO = true; 
+      }     
+     }
+    else
+     PERIODO = true;
   
-  if((VELOCIDADE_AGITADOR == 0) || (PERIODO == 0 && PERIODO_INTERVALO_AGITADOR != 0))
+  if((VELOCIDADE_AGITADOR == 0) || not(PERIODO))
   {
       noTone(STEP_AGITADOR);
       digitalWrite(SLEEP, LOW);
@@ -374,6 +373,27 @@ void aciona_agitador()
   }
 }
 
+void define_periodo()
+{
+  if(PERIODO_INTERVALO_AGITADOR != 0)
+  {
+    if((millis() - PERIODO_AGITADOR)/1000 >= (PERIODO_INTERVALO_AGITADOR))
+    {
+         PERIODO = true;
+         PERIODO_DESLIGADO_TEMPO = millis(); 
+    }
+    else
+    {
+          if((millis() - PERIODO_DESLIGADO_TEMPO)/1000 >= PERIODO_DESLIGADO)
+          {
+            PERIODO = false; 
+            PERIODO_AGITADOR = millis();
+          }     
+    }
+  }
+  else
+     PERIODO = true;
+}
 void exibe_dados()
 {
   Serial.print("\n************************************************************************\n");
@@ -387,6 +407,12 @@ void exibe_dados()
     {
       Serial.print(" Intervalo do agitador (s): ");
       Serial.print(PERIODO_INTERVALO_AGITADOR);
+    }
+
+    if(PERIODO_DESLIGADO != 0)
+    {
+      Serial.print(" Periodo desligado (s): ");
+      Serial.print(PERIODO_DESLIGADO);
     }
     Serial.print("\n");
   }
