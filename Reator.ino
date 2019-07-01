@@ -18,6 +18,7 @@
 #include <DallasTemperature.h> // ler a biblioteca
 #include <TimerFour.h>
 #include <HX711.h>
+#include <Servo.h>
 
 
 //#######################################################################################################################
@@ -46,6 +47,11 @@ DeviceAddress ENDERECO_SENSOR_TEMPERATURA;
 // Define uma instância do sensor de pressão
 HX711 sensor_pressao;
 
+
+// Define valvula 
+
+Servo valvula;
+
 //#######################################################################################################################
 // PAINEL DE CONTROLE
 
@@ -53,8 +59,8 @@ HX711 sensor_pressao;
 boolean CH_LIGA_BOMBA1 = 1;
 boolean CH_LIGA_BOMBA2 = 1;
 boolean CH_LIGA_VALVULA = 1;
-boolean CH_LIBERA_SENSOR_TEMPERATURA = 1;
-boolean CH_RESISTENCIA = 1;
+boolean CH_LIBERA_SENSOR_TEMPERATURA = 0;
+boolean CH_RESISTENCIA = 0;
 boolean CH_HABILITA_AGITADOR = 1;
 boolean CH_HABILITA_SENSOR_PRESSAO = 1;
 boolean CH_HABILITA_SENSOR_NIVEL = 0;
@@ -62,17 +68,18 @@ boolean CH_HABILITA_SENSOR_NIVEL = 0;
 //#######################################################################################################################
 // VARIÁVEIS DO SISTEMA
 
-float TEMPERATURA, VOLUME = 0, VOLUME_OBJETIVO = 0, Vi = 3, Ve = 0.0, PERIODO_INTERVALO_AGITADOR = 0, 
+float TEMPERATURA, VOLUME = 0, VOLUME_OBJETIVO = 0, Vi = 0, Ve = 0.0, PERIODO_INTERVALO_AGITADOR = 0, 
     PERIODO_DESLIGADO = 0;
 int VELOCIDADE_AGITADOR = 0, 
     VELOCIDADE_AGITADOR_ANTERIOR = 0,
     TEMPERATURA_RESISTENCIA = 0, 
     PWM_BOMBA1 = 0, PWM_BOMBA2 = 0,
     ABERTURA_VALVULA = 0,
-    TE = 2; // Responsável pelo tempo de exibição dos dados.
+    TE = 1; // Responsável pelo tempo de exibição dos dados.
 
 long TEMPO;
 long PERIODO_DESLIGADO_TEMPO = 0;
+long TEMPO_VALVULA = 0;
     
 boolean LEITURA_NIVEL = 0; 
 
@@ -107,8 +114,9 @@ void setup()
    pinMode(PWM_BOMB_2, OUTPUT);
    digitalWrite(PWM_BOMB_1, LOW);
 
-   pinMode(VALVULA, OUTPUT);
-   digitalWrite(PWM_BOMB_1, LOW);
+   valvula.attach(8);
+//   pinMode(VALVULA, OUTPUT);
+//   digitalWrite(PWM_BOMB_1, LOW);
 
    pinMode(RESISTENCIA, OUTPUT);
    digitalWrite(PWM_BOMB_1, LOW);
@@ -180,16 +188,20 @@ void loop()
         liga_bomba1();
         liga_bomba2();
       }
-      else if((abs(VOLUME_OBJETIVO - VOLUME) <= 0.02))
+      else if((abs(VOLUME_OBJETIVO - VOLUME) <= 0.03))
       {
         ABERTURA_VALVULA = 0;
         muda_valvula();
         
         desativa_bombas();
         VOLUME_OBJETIVO = 0;
+        
       }
     
   }
+
+  if(CH_LIGA_VALVULA)
+    muda_valvula();
 
   if((millis() - TEMPO)/1000 > TE)
   {
@@ -201,16 +213,21 @@ void loop()
 
 void le_informacao()
 {
-  while (Serial.available() > 0)
+  if(Serial.available() > 0)
   {
     // Lê primeiro byte digitado pelo usuário e atua no sistema
       switch (Serial.read())
       {
         case 'B':
-                    if((Serial.available() > 0) && (Serial.read() == '1'))
+                    delay(2);
+                    if(Serial.read() == '1')
+                    {
                       PWM_BOMBA1 = Serial.parseInt();
+                    }
                     else
+                    {
                       PWM_BOMBA2 = Serial.parseInt();
+                    }  
 
                     if(CH_LIGA_BOMBA1) // Aplica as alterações 
                       liga_bomba1();
@@ -230,11 +247,14 @@ void le_informacao()
                         PERIODO_DESLIGADO = Serial.parseFloat();
                     if(VELOCIDADE_AGITADOR > 160) //156
                         VELOCIDADE_AGITADOR = 160;
+                    else if(VELOCIDADE_AGITADOR < 30 && VELOCIDADE_AGITADOR != 0)
+                    {
+                      VELOCIDADE_AGITADOR = 30;
+                      Serial.println("Velocidade mínima: 30rpm");
+                    }
                     break;
         case 'V':
                     ABERTURA_VALVULA = Serial.parseInt();
-                    if(CH_LIGA_VALVULA)
-                      muda_valvula();
                     break;
         case 'L': 
                     if(CH_HABILITA_SENSOR_PRESSAO)  //if((CH_LIGA_BOMBA1 || CH_LIGA_BOMBA2) && (CH_LIGA_VALVULA))
@@ -298,7 +318,19 @@ void desativa_bombas()
 
 void muda_valvula()
 {
-   analogWrite(VALVULA, map(ABERTURA_VALVULA, 0, 100, 135, 225)); 
+   if(valvula.read() != map(ABERTURA_VALVULA, 0, 100, 80, 180))
+   {
+      valvula.attach(8);
+      valvula.write(map(ABERTURA_VALVULA, 0, 100, 80, 180));
+      TEMPO_VALVULA = millis();
+   }
+   
+   if((millis() - TEMPO_VALVULA)/1000 > 1)
+   {
+        valvula.detach();
+        digitalWrite(8, LOW);
+   }
+   
 }
 
 void le_sensor_temperatura()
@@ -330,9 +362,9 @@ void aciona_resistencia()
 
 void aciona_agitador()
 {  
-  int step = 40;
+  int step = 15;
   // Implementa uma variação suave de velocidade
-  if((VELOCIDADE_AGITADOR - abs(VELOCIDADE_AGITADOR_ANTERIOR)) <= step)
+  if(abs(VELOCIDADE_AGITADOR - VELOCIDADE_AGITADOR_ANTERIOR) <= step)
   {
       VELOCIDADE_AGITADOR_ANTERIOR = VELOCIDADE_AGITADOR;
   }
@@ -342,7 +374,23 @@ void aciona_agitador()
   else if((VELOCIDADE_AGITADOR - VELOCIDADE_AGITADOR_ANTERIOR) < step)
       VELOCIDADE_AGITADOR_ANTERIOR-= step;
 
-  if(not(PERIODO))  // Permite usar o acionamento suave no motor de passo usando os períodos de intervalo.
+  define_periodo();
+  
+  if((VELOCIDADE_AGITADOR == 0) || not(PERIODO))
+  {
+      noTone(STEP_AGITADOR);
+      digitalWrite(SLEEP, LOW);
+  }
+  else if((VELOCIDADE_AGITADOR != 0) && PERIODO)
+  {
+      digitalWrite(SLEEP, HIGH);
+      tone(STEP_AGITADOR, VELOCIDADE_AGITADOR_ANTERIOR*200/60); // Manda uma onda quadrada para o driver do motor com a velocidade em rpm desejada.
+  }
+}
+
+void define_periodo()
+{
+    if(not(PERIODO))  // Permite usar o acionamento suave no motor de passo usando os períodos de intervalo.
      VELOCIDADE_AGITADOR_ANTERIOR = 0;
 
     if(PERIODO_INTERVALO_AGITADOR != 0)
@@ -359,39 +407,6 @@ void aciona_agitador()
       }     
      }
     else
-     PERIODO = true;
-  
-  if((VELOCIDADE_AGITADOR == 0) || not(PERIODO))
-  {
-      noTone(STEP_AGITADOR);
-      digitalWrite(SLEEP, LOW);
-  }
-  else if((VELOCIDADE_AGITADOR != 0) && PERIODO)
-  {
-      digitalWrite(SLEEP, HIGH);
-      tone(STEP_AGITADOR, VELOCIDADE_AGITADOR_ANTERIOR*200/60); // Manda uma onda quadrada para o driver do motor com a velocidade em rpm desejada.
-  }
-}
-
-void define_periodo()
-{
-  if(PERIODO_INTERVALO_AGITADOR != 0)
-  {
-    if((millis() - PERIODO_AGITADOR)/1000 >= (PERIODO_INTERVALO_AGITADOR))
-    {
-         PERIODO = true;
-         PERIODO_DESLIGADO_TEMPO = millis(); 
-    }
-    else
-    {
-          if((millis() - PERIODO_DESLIGADO_TEMPO)/1000 >= PERIODO_DESLIGADO)
-          {
-            PERIODO = false; 
-            PERIODO_AGITADOR = millis();
-          }     
-    }
-  }
-  else
      PERIODO = true;
 }
 void exibe_dados()
