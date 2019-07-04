@@ -4,9 +4,7 @@
  *
  *  Autor: Julian Jose de Brito
  *
- *  Versão 2.1 30/05/2019: Controle proporcional de volume.
- *                         Simplificação do código.
- *                         Melhora na exibição de dados.
+ *  Versão 2.2 04/07/2019: Ajuste da precisão de leitura do volume
  * 
  */
 
@@ -58,7 +56,7 @@ Servo valvula;
 //Define as chaves de controle
 boolean CH_LIGA_BOMBA1 = 1;
 boolean CH_LIGA_BOMBA2 = 1;
-boolean CH_LIGA_VALVULA = 1;
+boolean CH_LIGA_VALVULA = 0;
 boolean CH_LIBERA_SENSOR_TEMPERATURA = 0;
 boolean CH_RESISTENCIA = 0;
 boolean CH_HABILITA_AGITADOR = 1;
@@ -68,7 +66,7 @@ boolean CH_HABILITA_SENSOR_NIVEL = 0;
 //#######################################################################################################################
 // VARIÁVEIS DO SISTEMA
 
-float TEMPERATURA, VOLUME = 0, VOLUME_OBJETIVO = 0, Vi = 0, Ve = 0.0, PERIODO_INTERVALO_AGITADOR = 0, 
+float TEMPERATURA, VOLUME = 0, VOLUME_OBJETIVO = 0, Vi = 0.029, Ve = 0.0, PERIODO_INTERVALO_AGITADOR = 0, 
     PERIODO_DESLIGADO = 0;
 int VELOCIDADE_AGITADOR = 0, 
     VELOCIDADE_AGITADOR_ANTERIOR = 0,
@@ -158,7 +156,7 @@ void loop()
 
   if(VOLUME_OBJETIVO != 0)
   { 
-      if((VOLUME_OBJETIVO - VOLUME) < -0.01)
+      if((VOLUME_OBJETIVO - VOLUME) < -0.002)
       {
         ABERTURA_VALVULA = (abs(VOLUME_OBJETIVO - VOLUME)/VOLUME_OBJETIVO)*100;
         if(ABERTURA_VALVULA < 60)
@@ -168,13 +166,13 @@ void loop()
 
         desativa_bombas();
       }
-      else if(((VOLUME_OBJETIVO - VOLUME) > 0.01) && !LEITURA_NIVEL)
+      else if(((VOLUME_OBJETIVO - VOLUME) > 0.002) && !LEITURA_NIVEL)
       {
         ABERTURA_VALVULA = 0;
         muda_valvula();
 
         int delta = abs((VOLUME_OBJETIVO - VOLUME)/VOLUME_OBJETIVO)*100;
-        if(delta < 15)
+        if(delta < 20)
         {
           PWM_BOMBA1 = 2;
           PWM_BOMBA2 = 2;
@@ -188,7 +186,7 @@ void loop()
         liga_bomba1();
         liga_bomba2();
       }
-      else if((abs(VOLUME_OBJETIVO - VOLUME) <= 0.03))
+      else if((abs(VOLUME_OBJETIVO - VOLUME) <= 0.004))
       {
         ABERTURA_VALVULA = 0;
         muda_valvula();
@@ -318,10 +316,10 @@ void desativa_bombas()
 
 void muda_valvula()
 {
-   if(valvula.read() != map(ABERTURA_VALVULA, 0, 100, 80, 180))
+   if(valvula.read() != map(ABERTURA_VALVULA, 0, 100, 50, 180))
    {
       valvula.attach(8);
-      valvula.write(map(ABERTURA_VALVULA, 0, 100, 80, 180));
+      valvula.write(map(ABERTURA_VALVULA, 0, 100, 50, 180));
       TEMPO_VALVULA = millis();
    }
    
@@ -341,12 +339,12 @@ void le_sensor_temperatura()
 
 void le_sensor_pressao()
 {
-    VOLUME = (sensor_pressao.get_units()*25.795 + Vi);
+    //VOLUME = (sensor_pressao.get_units()*25.795 + Vi);
    
-    //if(sensor_pressao.is_ready())
-    //  VOLUME = (sensor_pressao.read()*0.00000353+Vi-Ve);
-     //if(sensor_pressao.is_ready())
-        //VOLUME = (sensor_pressao.read()*0.00000353+Vi-Ve);
+    if(sensor_pressao.is_ready())
+    VOLUME = (sensor_pressao.read_average(20)*4.229885286/1000+7188.26145767)/1000 + Vi;
+    //VOLUME = (sensor_pressao.read()*4229885.285946/1000000+7188.26145767);
+    
 }
 
 void aciona_resistencia()
@@ -467,7 +465,7 @@ void exibe_dados()
   if(CH_HABILITA_SENSOR_PRESSAO)
   {
     Serial.print("Volume: ");
-    Serial.print(VOLUME);
+    Serial.print(VOLUME, 3);
   }
   
   Serial.println(" ");
