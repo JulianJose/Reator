@@ -5,6 +5,7 @@
  *  Autor: Julian Jose de Brito
  *
  *  Versão 2.2 04/07/2019: Ajuste da precisão de leitura do volume
+ *  Este código se encontra disponível no seguinte endereço: https://github.com/JulianJose/Reator
  * 
  */
 
